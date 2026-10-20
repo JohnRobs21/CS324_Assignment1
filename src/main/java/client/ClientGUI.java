@@ -11,6 +11,17 @@ import java.io.File;
 import java.io.FileReader;
 import java.util.ArrayList;
 import java.util.List;
+import com.cs324.distrilab.grpc.JobServiceGrpc;
+import com.cs324.distrilab.grpc.JobUpdate;
+import com.cs324.distrilab.grpc.MaxJobRequest;
+import com.cs324.distrilab.grpc.PrimeSumJobRequest;
+import com.cs324.distrilab.grpc.PrimeCountJobRequest;
+
+import io.grpc.ManagedChannel;
+import io.grpc.ManagedChannelBuilder;
+
+import java.util.Iterator;
+import java.util.UUID;
 
 /**
  *
@@ -23,6 +34,9 @@ public class ClientGUI extends JFrame {
     private JButton submitButton;
     private JButton loadCsvButton;
     private JTextArea resultArea;
+    private JProgressBar progressBar;
+    private JLabel progressLabel;
+    private JTextArea workerProgressArea;
 
     public ClientGUI() {
 
@@ -34,10 +48,8 @@ public class ClientGUI extends JFrame {
         // Main panel
         JPanel mainPanel = new JPanel(new BorderLayout(10, 10));
 
-        mainPanel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15)
-        );
+        mainPanel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
 
-        
         // Job selection
         JPanel topPanel = new JPanel(new FlowLayout());
 
@@ -72,6 +84,44 @@ public class ClientGUI extends JFrame {
 
         buttonPanel.add(loadCsvButton);
         buttonPanel.add(submitButton);
+        
+        // Overall job progress
+        progressBar = new JProgressBar(0, 100);
+        progressBar.setValue(0);
+        progressBar.setStringPainted(true);
+        progressBar.setString("Waiting for Job");
+        
+        progressBar.setToolTipText("Click to view worker-level progress");
+
+        progressBar.setCursor(
+                Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+        progressBar.addMouseListener(new java.awt.event.MouseAdapter() {
+            
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                String details = workerProgressArea.getText();
+
+                JOptionPane.showMessageDialog(
+                        ClientGUI.this,
+                        details,
+                        "Worker-Level Progress",
+                        JOptionPane.INFORMATION_MESSAGE);
+            }
+        });
+
+        progressLabel = new JLabel("Progress: 0%");
+
+        // Individual worker progress
+        workerProgressArea = new JTextArea(3, 35);
+        workerProgressArea.setEditable(false);
+        workerProgressArea.setText("Worker progress will appear here.");
+        workerProgressArea.setFont(
+                new Font(Font.MONOSPACED, Font.PLAIN, 12)
+        );
+
+        JScrollPane workerScrollPane =
+                new JScrollPane(workerProgressArea);
 
         // Result area
         resultArea = new JTextArea();
@@ -80,16 +130,25 @@ public class ClientGUI extends JFrame {
 
         JScrollPane scrollPane = new JScrollPane(resultArea);
 
-        // Add components
-        mainPanel.add(topPanel,BorderLayout.NORTH);
+        // Arrange the input and progress panels
+        JPanel workPanel = new JPanel(new BorderLayout(5, 10));
+        workPanel.add(inputPanel, BorderLayout.NORTH);
+        
+        JPanel progressPanel = new JPanel(new BorderLayout(5, 5));
 
-        mainPanel.add(inputPanel,BorderLayout.CENTER);
+        JPanel progressHeader = new JPanel(new BorderLayout());
+        progressHeader.add(progressLabel, BorderLayout.NORTH);
+        progressHeader.add(progressBar, BorderLayout.CENTER);
 
-        mainPanel.add(buttonPanel,BorderLayout.SOUTH);
-
-        add(mainPanel,BorderLayout.NORTH);
-
-        add(scrollPane,BorderLayout.CENTER);
+        progressPanel.add(progressHeader, BorderLayout.NORTH);
+        progressPanel.add(workerScrollPane, BorderLayout.CENTER);
+        progressPanel.add(buttonPanel, BorderLayout.SOUTH);
+        
+        workPanel.add(progressPanel, BorderLayout.CENTER);
+        mainPanel.add(topPanel, BorderLayout.NORTH);
+        mainPanel.add(workPanel, BorderLayout.CENTER);
+        add(mainPanel, BorderLayout.NORTH);
+        add(scrollPane, BorderLayout.CENTER);
 
         // Button actions
         submitButton.addActionListener(
@@ -174,124 +233,188 @@ public class ClientGUI extends JFrame {
     
      //Sends the selected job to the
      //distributed worker system.
-    
+     
     private void submitJob() {
 
-        // Get the selected job.
         String selectedJob = (String) jobType.getSelectedItem();
-
-        // Get the input entered by the user.
         String input = inputField.getText().trim();
 
-        // Check for empty input.
         if (input.isEmpty()) {
-
-            resultArea.append(
-                    "Please enter some input.\n"
-            );
-
+            resultArea.append("Please enter some input.\n");
             return;
         }
 
-        
-        // Run the client request in a separate
-        // thread so the GUI does not freeze.
-         
+        // Prevent repeated submissions while this job is running.
+        submitButton.setEnabled(false);
+        progressBar.setValue(0);
+        progressBar.setString("Submitting...");
+        updateProgress(0, "Submitting...");
+        workerProgressArea.setText("Waiting for worker updates...\n");
+
         new Thread(() -> {
 
+            ManagedChannel channel = ManagedChannelBuilder
+                    .forAddress("localhost", 50051)
+                    .usePlaintext()
+                    .build();
+
             try {
+                JobServiceGrpc.JobServiceBlockingStub stub =
+                        JobServiceGrpc.newBlockingStub(channel);
 
-                // Create the RMI client.
-                Client client = new Client();
+                String jobId = UUID.randomUUID().toString();
+                Iterator<JobUpdate> updates;
 
-                int result;
-
-                
-                // MAX
-                if (selectedJob.equals("MAX")) {
+                if ("MAX".equals(selectedJob)) {
 
                     int[] numbers = parseNumbers(input);
 
-                    result = client.submitMax(numbers);
-                }
+                    MaxJobRequest request = MaxJobRequest.newBuilder()
+                            .setJobId(jobId)
+                            .addAllNumbers(
+                                    java.util.Arrays.stream(numbers)
+                                            .boxed()
+                                            .toList()
+                            )
+                            .build();
 
-               
-                // PRIMESUM
-                else if (
-                        selectedJob.equals("PRIMESUM")
-                ) {
+                    updates = stub.submitMax(request);
 
-                    
-                     //PRIMESUM input format:
-                     //start,end
-                     //Example:
-                     //1,1000
-                     
+                } else if ("PRIMESUM".equals(selectedJob)) {
+
                     String[] values = input.split(",");
 
                     if (values.length != 2) {
-
                         throw new IllegalArgumentException(
                                 "PRIMESUM format must be: start,end"
                         );
                     }
 
-                    int start =
-                            Integer.parseInt(
-                                    values[0].trim()
-                            );
+                    int start = Integer.parseInt(values[0].trim());
+                    int end = Integer.parseInt(values[1].trim());
 
-                    int end =
-                            Integer.parseInt(
-                                    values[1].trim()
-                            );
+                    if (start > end) {
+                        throw new IllegalArgumentException(
+                                "Start must be less than or equal to end."
+                        );
+                    }
 
-                    result =
-                            client.submitPrimeSum(
-                                    start,
-                                    end
-                            );
-                }
+                    PrimeSumJobRequest request = PrimeSumJobRequest.newBuilder()
+                                    .setJobId(jobId)
+                                    .setStart(start)
+                                    .setEnd(end)
+                                    .build();
 
-                
-                // PRIMECOUNT
-                else {
+                    updates = stub.submitPrimeSum(request);
+
+                } else if ("PRIMECOUNT".equals(selectedJob)) {
 
                     int[] numbers = parseNumbers(input);
 
-                    result = client.submitPrimeCount(numbers);
+                    PrimeCountJobRequest request =
+                            PrimeCountJobRequest.newBuilder()
+                                    .setJobId(jobId)
+                                    .addAllNumbers(
+                                            java.util.Arrays.stream(numbers)
+                                                    .boxed()
+                                                    .toList()
+                                    )
+                                    .build();
+
+                    updates = stub.submitPrimeCount(request);
+
+                } else {
+                    throw new IllegalArgumentException(
+                            "Unknown job type: " + selectedJob
+                    );
                 }
 
-                /*
-                 * Update the GUI using the Swing
-                 * Event Dispatch Thread.
-                 */
-                SwingUtilities.invokeLater(() -> {
+                boolean receivedResult = false;
 
-                    resultArea.append(
-                            selectedJob
-                            + " Result: "
-                            + result
-                            + "\n"
+                while (updates.hasNext()) {
+                    JobUpdate update = updates.next();
+
+                    int percentage = (int) Math.round(
+                            update.getOverallPercentage()
                     );
+                    
+                    SwingUtilities.invokeLater(() -> {
+                    StringBuilder workerText = new StringBuilder();
+
+                    for (var worker : update.getWorkerProgressList()) {
+                        workerText.append("Worker ")
+                                .append(worker.getWorkerId())
+                                .append(": ")
+                                .append(worker.getCompletedUnits())
+                                .append("/")
+                                .append(worker.getTotalUnits())
+                                .append(" units - ")
+                                .append(worker.getStatus())
+                                .append("\n");
+                    }
+
+                    if (workerText.length() > 0) {
+                        workerProgressArea.setText(workerText.toString());
+                    }
                 });
+
+                    updateProgress(
+                            percentage,
+                            update.getCompleted()
+                                    ? "Completed"
+                                    : "Processing..."
+                    );
+
+                    if (update.getCompleted()) {
+                        receivedResult = true;
+
+                        SwingUtilities.invokeLater(() ->
+                                resultArea.append(
+                                        selectedJob + " Result: "
+                                        + update.getResult() + "\n"
+                                )
+                        );
+                    }
+                }
+
+                if (!receivedResult) {
+                    SwingUtilities.invokeLater(() ->
+                            resultArea.append(
+                                    selectedJob
+                                    + ": Stream ended without a final result.\n"
+                            )
+                    );
+                }
 
             } catch (Exception e) {
 
-                
-                 //Display any error in the GUI.
-                 
                 SwingUtilities.invokeLater(() -> {
-
                     resultArea.append(
-                            "Error: "
-                            + e.getMessage()
-                            + "\n"
+                            "Error: " + e.getMessage() + "\n"
                     );
+                    updateProgress(0, "Failed");
                 });
+
+            } finally {
+                channel.shutdown();
+
+                SwingUtilities.invokeLater(() ->
+                        submitButton.setEnabled(true)
+                );
             }
 
         }).start();
+    }
+    
+    // Updates the progress bar safely from another thread.
+    private void updateProgress(int percentage, String status) {
+        int safePercentage = Math.max(0, Math.min(100, percentage));
+
+        SwingUtilities.invokeLater(() -> {
+            progressBar.setValue(safePercentage);
+            progressLabel.setText("Progress: " + safePercentage + "%");
+            progressBar.setString(status);
+        });
     }
 
     /**
@@ -326,8 +449,7 @@ public class ClientGUI extends JFrame {
 
         SwingUtilities.invokeLater(() -> {
 
-            ClientGUI gui =
-                    new ClientGUI();
+            ClientGUI gui = new ClientGUI();
 
             gui.setVisible(true);
         });

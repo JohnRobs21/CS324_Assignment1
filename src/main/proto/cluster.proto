@@ -1,0 +1,182 @@
+syntax = "proto3";
+
+package distrilab;
+
+option java_multiple_files = true;
+option java_package = "com.cs324.distrilab.grpc";
+option java_outer_classname = "ClusterProto";
+
+// Information about a worker node.
+message WorkerInfo {
+  int32 worker_id = 1;
+  int32 jac = 2;
+  string host = 3;
+  int32 port = 4;
+  bool active = 5;
+}
+
+// Worker registration and discovery.
+message RegisterWorkerRequest {
+  WorkerInfo worker = 1;
+}
+
+message RegisterWorkerResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message GetActiveWorkersRequest {}
+
+message GetActiveWorkersResponse {
+  repeated WorkerInfo workers = 1;
+}
+
+// Leader election.
+message ElectionRequest {
+  string election_id = 1;
+  int32 worker_id = 2;
+  int32 jac = 3;
+}
+
+message CoordinatorAnnouncement {
+  string election_id = 1;
+  int32 coordinator_id = 2;
+  int32 coordinator_jac = 3;
+}
+
+message GetCoordinatorRequest {}
+
+message GetCoordinatorResponse {
+  int32 coordinator_id = 1;
+  int32 coordinator_jac = 2;
+  bool has_coordinator = 3;
+}
+
+// Job submission.
+message MaxJobRequest {
+  string job_id = 1;
+  repeated int32 numbers = 2;
+}
+
+message PrimeSumJobRequest {
+  string job_id = 1;
+  int32 start = 2;
+  int32 end = 3;
+}
+
+message PrimeCountJobRequest {
+  string job_id = 1;
+  repeated int32 numbers = 2;
+}
+
+// A chunk of work assigned to a worker.
+message TaskChunkRequest {
+  string job_id = 1;
+  string task_id = 2;
+  string job_type = 3;
+  repeated int32 numbers = 4;
+  int32 start = 5;
+  int32 end = 6;
+}
+
+// Result returned by a worker after processing a chunk.
+message TaskChunkResponse {
+  string job_id = 1;
+  string task_id = 2;
+  int32 worker_id = 3;
+  int64 result = 4;
+  int32 completed_units = 5;
+  int32 total_units = 6;
+  bool success = 7;
+  string message = 8;
+}
+
+//Lets worker report how much its assigned chunks has been processed
+message TaskProgressUpdate {
+  string job_id = 1;
+  string task_id = 2;
+  int32 worker_id = 3;
+  int32 completed_units = 4;
+  int32 total_units = 5;
+  double percentage = 6;
+  bool completed = 7;
+  int64 result = 8;
+  bool success = 9;
+  string message = 10;
+}
+
+// Progress updates from distributed workers.
+message WorkerProgress {
+  int32 worker_id = 1;
+  int32 completed_units = 2;
+  int32 total_units = 3;
+  double percentage = 4;
+  string status = 5;
+}
+
+message JobUpdate {
+  string job_id = 1;
+  double overall_percentage = 2;
+  repeated WorkerProgress worker_progress = 3;
+  bool completed = 4;
+  int64 result = 5;
+  string message = 6;
+}
+
+message WorkerHeartbeat {
+  int32 worker_id = 1;
+}
+
+message HeartbeatResponse {
+  bool alive = 1;
+}
+
+// Bootstrap Node service.
+service BootstrapService {
+  rpc RegisterWorker(RegisterWorkerRequest)
+      returns (RegisterWorkerResponse);
+
+  rpc GetActiveWorkers(GetActiveWorkersRequest)
+      returns (GetActiveWorkersResponse);
+
+  rpc Heartbeat(WorkerHeartbeat)
+      returns (HeartbeatResponse);
+
+rpc GetCoordinator(GetCoordinatorRequest)
+    returns (GetCoordinatorResponse);
+
+rpc AnnounceCoordinator(CoordinatorAnnouncement)
+    returns (CoordinatorAnnouncement);
+}
+
+// Worker and leader-election service.
+service WorkerService {
+  rpc StartElection(ElectionRequest)
+      returns (CoordinatorAnnouncement);
+
+  rpc ReceiveElection(ElectionRequest)
+      returns (ElectionRequest);
+
+  rpc AnnounceCoordinator(CoordinatorAnnouncement)
+      returns (CoordinatorAnnouncement);
+
+  // Execute one assigned task chunk.
+  rpc ExecuteTask(TaskChunkRequest)
+      returns (TaskChunkResponse);
+
+rpc ExecuteTaskWithProgress(TaskChunkRequest)
+    returns (stream TaskProgressUpdate);
+
+}
+
+// Client job service. Each RPC streams progress updates and the final result.
+service JobService {
+  rpc SubmitMax(MaxJobRequest)
+      returns (stream JobUpdate);
+
+  rpc SubmitPrimeSum(PrimeSumJobRequest)
+      returns (stream JobUpdate);
+
+  rpc SubmitPrimeCount(PrimeCountJobRequest)
+      returns (stream JobUpdate);
+}

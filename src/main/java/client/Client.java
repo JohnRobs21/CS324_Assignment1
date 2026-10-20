@@ -21,7 +21,7 @@ public class Client {
      * Finds the current coordinator through
      * the Bootstrap Node.
      *
-     * @return WorkerInterface reference to the coordinator
+     *  WorkerInterface reference to the coordinator
      */
     private WorkerInterface findCoordinator()
             throws RemoteException {
@@ -74,7 +74,7 @@ public class Client {
     /**
      * Sends a MAX job to the coordinator.
      *
-     * @param numbers numbers to process
+     *  numbers to process
      * @return maximum number
      */
     public int submitMax(int[] numbers)
@@ -88,9 +88,9 @@ public class Client {
     /**
      * Sends a PRIMESUM job to the coordinator.
      *
-     * @param start starting number
-     * @param end ending number
-     * @return sum of prime numbers
+     * start starting number
+     * end ending number
+     * return sum of prime numbers
      */
     public int submitPrimeSum(int start,int end)
             throws RemoteException {
@@ -103,8 +103,8 @@ public class Client {
     /**
      * Sends a PRIMECOUNT job to the coordinator.
      *
-     * @param numbers numbers to check
-     * @return number of prime numbers
+     *  numbers to check
+     * return number of prime numbers
      */
     public int submitPrimeCount(int[] numbers)
             throws RemoteException {

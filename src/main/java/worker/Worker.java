@@ -1045,8 +1045,7 @@ public class Worker extends UnicastRemoteObject
                     // portion locally.
                     if (targetId == workerId) {
 
-                        result =
-                                processPrimeSumJob(
+                        result = processPrimeSumJob(
                                         rangeStart,
                                         rangeEnd
                                 );
